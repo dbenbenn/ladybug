@@ -777,24 +777,25 @@ theorem measure_exitsAt_eq_one (N t : ℤ) : μ {ω | ExitsAt t N t ω} = 1 := b
 
 /-! ### Solving the discrete Laplace equation -/
 
-private theorem eq_linear_of_harmonic {F : ℕ → ℝ} {N : ℕ}
-    (h : ∀ j, 0 < j → j < N → 2 * F j = F (j + 1) + F (j - 1)) :
-    ∀ j, j ≤ N → F j = F 0 + j * (F 1 - F 0) := by
-  have key : ∀ j, j ≤ N → F j = F 0 + j * (F 1 - F 0) ∧
-      (j + 1 ≤ N → F (j + 1) = F 0 + (j + 1 : ℕ) * (F 1 - F 0)) := by
-    intro j
-    induction j with
-    | zero => exact fun _ => ⟨by simp, fun _ => by push_cast; ring⟩
-    | succ j ih =>
-        intro hj
-        obtain ⟨e0, e1⟩ := ih (by omega)
-        refine ⟨e1 hj, fun hj2 => ?_⟩
-        have hrec := h (j + 1) (by omega) (by omega)
-        simp only [Nat.add_sub_cancel] at hrec
-        have ej1 := e1 hj
-        push_cast at e0 ej1 ⊢
-        linear_combination -hrec + 2 * ej1 - e0
-  exact fun j hj => (key j hj).1
+private theorem eq_linear_of_harmonic {F : ℤ → ℝ} {lo hi : ℤ}
+    (h : ∀ a, lo < a → a < hi → 2 * F a = F (a + 1) + F (a - 1)) :
+    ∀ a, lo ≤ a → a ≤ hi → F a = F lo + ((a : ℝ) - lo) * (F (lo + 1) - F lo) := by
+  have key : ∀ a, lo ≤ a →
+      (a ≤ hi → F a = F lo + ((a : ℝ) - lo) * (F (lo + 1) - F lo)) ∧
+      (a + 1 ≤ hi → F (a + 1) = F lo + (((a + 1 : ℤ) : ℝ) - lo) * (F (lo + 1) - F lo)) := by
+    intro a ha
+    induction a, ha using Int.leInduction with
+    | base => exact ⟨fun _ => by ring, fun _ => by push_cast; ring⟩
+    | succ a ha ih =>
+        obtain ⟨e0, e1⟩ := ih
+        refine ⟨e1, fun h2 => ?_⟩
+        have hrec := h (a + 1) (by omega) (by omega)
+        rw [add_sub_cancel_right] at hrec
+        have ej1 := e1 (by omega)
+        have ej0 := e0 (by omega)
+        push_cast at ej0 ej1 ⊢
+        linear_combination -hrec + 2 * ej1 - ej0
+  exact fun a ha hb => (key a ha).1 hb
 
 private theorem toReal_of_rec {x y z : ℝ≥0∞} (hy : y ≠ ⊤) (hz : z ≠ ⊤)
     (h : x = 1 / 2 * y + 1 / 2 * z) : 2 * x.toReal = y.toReal + z.toReal := by
@@ -810,66 +811,51 @@ private theorem toReal_rec (hμ : IsFairCoinFlips μ) {a N t : ℤ} (h0 : 0 < a)
   toReal_of_rec (measure_ne_top _ _) (measure_ne_top _ _) (measure_exitsAt_rec hμ h0 hN hat)
 
 /-- The ruin probability is an affine function of the starting point. -/
-private theorem toReal_exitsAt_affine (hμ : IsFairCoinFlips μ) {N : ℕ} {t : ℤ}
-    (hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ t) {j : ℕ} (hj : j ≤ N) :
-    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) t ω}).toReal
-      = (μ {ω | ExitsAt (0 : ℤ) (N : ℤ) t ω}).toReal
-        + j * ((μ {ω | ExitsAt (1 : ℤ) (N : ℤ) t ω}).toReal
-             - (μ {ω | ExitsAt (0 : ℤ) (N : ℤ) t ω}).toReal) := by
-  have hharm : ∀ i : ℕ, 0 < i → i < N →
-      2 * (μ {ω | ExitsAt ((i : ℕ) : ℤ) (N : ℤ) t ω}).toReal
-        = (μ {ω | ExitsAt ((i + 1 : ℕ) : ℤ) (N : ℤ) t ω}).toReal
-          + (μ {ω | ExitsAt ((i - 1 : ℕ) : ℤ) (N : ℤ) t ω}).toReal := by
-    intro i hi hiN
-    have hr := toReal_rec hμ (a := (i : ℤ)) (N := (N : ℤ)) (t := t)
-      (by exact_mod_cast hi) (by exact_mod_cast hiN) (hint i hi hiN)
-    rw [show ((i : ℤ) + 1) = ((i + 1 : ℕ) : ℤ) by push_cast; ring,
-      show ((i : ℤ) - 1) = ((i - 1 : ℕ) : ℤ) by omega] at hr
-    exact hr
-  have hkey := eq_linear_of_harmonic
-    (F := fun i : ℕ => (μ {ω | ExitsAt ((i : ℕ) : ℤ) (N : ℤ) t ω}).toReal) hharm j hj
+private theorem toReal_exitsAt_affine (hμ : IsFairCoinFlips μ) {N t : ℤ}
+    (hint : ∀ b : ℤ, 0 < b → b < N → b ≠ t) {a : ℤ} (h0 : 0 ≤ a) (haN : a ≤ N) :
+    (μ {ω | ExitsAt a N t ω}).toReal
+      = (μ {ω | ExitsAt 0 N t ω}).toReal
+        + a * ((μ {ω | ExitsAt 1 N t ω}).toReal - (μ {ω | ExitsAt 0 N t ω}).toReal) := by
+  have hkey := eq_linear_of_harmonic (F := fun b : ℤ => (μ {ω | ExitsAt b N t ω}).toReal)
+    (lo := 0) (hi := N) (fun b hb hbN => toReal_rec hμ hb hbN (hint b hb hbN)) a h0 haN
   simpa using hkey
 
-/-- **Gambler's ruin, upper barrier.**  Started at `j ∈ {0, …, N}`, the walk reaches `N` before
-`0` with probability `j / N`. -/
-theorem toReal_exitsAt_top (hμ : IsFairCoinFlips μ) {N : ℕ} (hN : 0 < N) {j : ℕ} (hj : j ≤ N) :
-    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) (N : ℤ) ω}).toReal = j / N := by
-  have hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ (N : ℤ) := fun i _ hiN => by
-    exact_mod_cast Nat.ne_of_lt hiN
-  have h0 : μ {ω | ExitsAt (0 : ℤ) (N : ℤ) (N : ℤ) ω} = 0 :=
-    measure_exitsAt_eq_zero (by exact_mod_cast hN.ne) (by omega)
-  have hNN : μ {ω | ExitsAt ((N : ℕ) : ℤ) (N : ℤ) (N : ℤ) ω} = 1 := measure_exitsAt_eq_one _ _
-  have keyN := toReal_exitsAt_affine hμ hint (j := N) le_rfl
-  have keyj := toReal_exitsAt_affine hμ hint hj
-  rw [h0] at keyN keyj
+/-- **Gambler's ruin, upper barrier.**  Started at `a ∈ {0, …, N}`, the walk reaches `N` before
+`0` with probability `a / N`. -/
+theorem toReal_exitsAt_top (hμ : IsFairCoinFlips μ) {N : ℤ} (hN : 0 < N) {a : ℤ} (h0 : 0 ≤ a)
+    (haN : a ≤ N) : (μ {ω | ExitsAt a N N ω}).toReal = (a : ℝ) / N := by
+  have hint : ∀ b : ℤ, 0 < b → b < N → b ≠ N := fun b _ hbN => hbN.ne
+  have hz : μ {ω | ExitsAt 0 N N ω} = 0 := measure_exitsAt_eq_zero (by omega) (by omega)
+  have hNN : μ {ω | ExitsAt N N N ω} = 1 := measure_exitsAt_eq_one N N
+  have keyN := toReal_exitsAt_affine hμ hint (a := N) (by omega) le_rfl
+  have keya := toReal_exitsAt_affine hμ hint h0 haN
+  rw [hz] at keyN keya
   rw [hNN] at keyN
-  simp only [ENNReal.toReal_zero, ENNReal.toReal_one, sub_zero, zero_add] at keyN keyj
-  have hN' : (N : ℝ) ≠ 0 := Nat.cast_ne_zero.mpr hN.ne'
-  have hF1 : (μ {ω | ExitsAt (1 : ℤ) (N : ℤ) (N : ℤ) ω}).toReal = 1 / N := by
+  simp only [ENNReal.toReal_zero, ENNReal.toReal_one, sub_zero, zero_add] at keyN keya
+  have hN' : (N : ℝ) ≠ 0 := Int.cast_ne_zero.mpr hN.ne'
+  have hF1 : (μ {ω | ExitsAt 1 N N ω}).toReal = 1 / N := by
     field_simp
     linarith [keyN]
-  rw [keyj, hF1]
+  rw [keya, hF1]
   field_simp
 
-/-- **Gambler's ruin, lower barrier.**  Started at `j ∈ {0, …, N}`, the walk reaches `0` before
-`N` with probability `(N - j) / N`. -/
-theorem toReal_exitsAt_bot (hμ : IsFairCoinFlips μ) {N : ℕ} (hN : 0 < N) {j : ℕ} (hj : j ≤ N) :
-    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) 0 ω}).toReal = ((N : ℝ) - j) / N := by
-  have hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ 0 := fun i hi _ => by
-    exact_mod_cast hi.ne'
-  have h0 : μ {ω | ExitsAt (0 : ℤ) (N : ℤ) 0 ω} = 1 := measure_exitsAt_eq_one _ _
-  have hNN : μ {ω | ExitsAt ((N : ℕ) : ℤ) (N : ℤ) 0 ω} = 0 :=
-    measure_exitsAt_eq_zero (by exact_mod_cast hN.ne') (by omega)
-  have keyN := toReal_exitsAt_affine hμ hint (j := N) le_rfl
-  have keyj := toReal_exitsAt_affine hμ hint hj
-  rw [h0] at keyN keyj
+/-- **Gambler's ruin, lower barrier.**  Started at `a ∈ {0, …, N}`, the walk reaches `0` before
+`N` with probability `(N - a) / N`. -/
+theorem toReal_exitsAt_bot (hμ : IsFairCoinFlips μ) {N : ℤ} (hN : 0 < N) {a : ℤ} (h0 : 0 ≤ a)
+    (haN : a ≤ N) : (μ {ω | ExitsAt a N 0 ω}).toReal = ((N : ℝ) - a) / N := by
+  have hint : ∀ b : ℤ, 0 < b → b < N → b ≠ 0 := fun b hb _ => hb.ne'
+  have hz : μ {ω | ExitsAt 0 N 0 ω} = 1 := measure_exitsAt_eq_one N 0
+  have hNN : μ {ω | ExitsAt N N 0 ω} = 0 := measure_exitsAt_eq_zero (by omega) (by omega)
+  have keyN := toReal_exitsAt_affine hμ hint (a := N) (by omega) le_rfl
+  have keya := toReal_exitsAt_affine hμ hint h0 haN
+  rw [hz] at keyN keya
   rw [hNN] at keyN
-  simp only [ENNReal.toReal_zero, ENNReal.toReal_one] at keyN keyj
-  have hN' : (N : ℝ) ≠ 0 := Nat.cast_ne_zero.mpr hN.ne'
-  have hF1 : (μ {ω | ExitsAt (1 : ℤ) (N : ℤ) 0 ω}).toReal = 1 - 1 / N := by
+  simp only [ENNReal.toReal_zero, ENNReal.toReal_one] at keyN keya
+  have hN' : (N : ℝ) ≠ 0 := Int.cast_ne_zero.mpr hN.ne'
+  have hF1 : (μ {ω | ExitsAt 1 N 0 ω}).toReal = 1 - 1 / N := by
     field_simp
     linarith [keyN]
-  rw [keyj, hF1]
+  rw [keya, hF1]
   field_simp
   ring
 
@@ -1033,17 +1019,16 @@ theorem prob_reachesBefore_add (hμ : IsFairCoinFlips μ) (k : Clock) (hk : k �
   have ha1 : (1 : ℤ) ≤ (((-k).val : ℕ) : ℤ) := by exact_mod_cast hd1
   have ha11 : (((-k).val : ℕ) : ℤ) ≤ 11 := by exact_mod_cast hd11
   rw [reachesBefore_sub_one_eq hak ha1 ha11, reachesBefore_add_one_eq hak ha1 ha11]
-  have hA := toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val) hd11
-  have hB := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val - 1)
-    (by omega)
-  simp only [Nat.cast_ofNat] at hA hB
-  rw [show ((((-k).val - 1 : ℕ)) : ℤ) = (((-k).val : ℕ) : ℤ) - 1 by omega] at hB
-  rw [Nat.cast_sub hd1] at hB
+  have hA := toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num)
+    (a := (((-k).val : ℕ) : ℤ)) (by omega) ha11
+  have hB := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num)
+    (a := (((-k).val : ℕ) : ℤ) - 1) (by omega) (by omega)
   rw [← ENNReal.toReal_eq_toReal_iff'
     (ENNReal.add_ne_top.mpr ⟨measure_ne_top _ _, measure_ne_top _ _⟩)
     (ENNReal.add_ne_top.mpr ⟨ENNReal.one_ne_top, by norm_num⟩),
     ENNReal.toReal_add (measure_ne_top _ _) (measure_ne_top _ _), hA, hB,
     ENNReal.toReal_add ENNReal.one_ne_top (by norm_num)]
+  push_cast
   norm_num
   ring
 
@@ -1147,40 +1132,26 @@ private theorem bothSides_eleven (ω : ℕ → Bool) : BothSides 11 ω ↔ Exits
 every starting point: harmonic between the two neighbours, and `1 / 11` at each of them. -/
 private theorem toReal_bothSides (hμ : IsFairCoinFlips μ) {a : ℤ} (h1 : 1 ≤ a) (h2 : a ≤ 11) :
     (μ {ω | BothSides a ω}).toReal = 1 / 11 := by
-  obtain ⟨j, hj, rfl⟩ : ∃ j : ℕ, j ≤ 10 ∧ a = (j : ℤ) + 1 := ⟨(a - 1).toNat, by omega, by omega⟩
-  -- the two boundary values, by gambler's ruin
+  -- standing on a neighbour, the value is a ruin probability
   have hb1 : (μ {ω | BothSides 1 ω}).toReal = 1 / 11 := by
     rw [show {ω | BothSides (1 : ℤ) ω} = {ω | ExitsAt 1 11 11 ω} from Set.ext bothSides_one]
-    have h := toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num) (j := 1) (by norm_num)
-    norm_num at h
-    exact h
+    simpa using toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num) (a := 1) (by norm_num)
+      (by norm_num)
   have hb11 : (μ {ω | BothSides 11 ω}).toReal = 1 / 11 := by
     rw [show {ω | BothSides (11 : ℤ) ω} = {ω | ExitsAt 10 11 0 ω} from Set.ext bothSides_eleven]
-    have h := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num) (j := 10) (by norm_num)
+    have h := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num) (a := 10) (by norm_num)
+      (by norm_num)
     norm_num at h
     exact h
-  -- harmonic strictly inside
-  have hharm : ∀ i : ℕ, 0 < i → i < 10 →
-      2 * (μ {ω | BothSides ((i : ℤ) + 1) ω}).toReal
-        = (μ {ω | BothSides (((i + 1 : ℕ) : ℤ) + 1) ω}).toReal
-          + (μ {ω | BothSides (((i - 1 : ℕ) : ℤ) + 1) ω}).toReal := by
-    intro i hi hi10
-    have hr := toReal_of_rec (measure_ne_top μ {ω | BothSides ((i : ℤ) + 1 + 1) ω})
-      (measure_ne_top μ {ω | BothSides ((i : ℤ) + 1 - 1) ω})
-      (measure_bothSides_rec hμ (a := (i : ℤ) + 1) (by omega) (by omega))
-    rw [show ((i : ℤ) + 1 + 1) = (((i + 1 : ℕ) : ℤ) + 1) from by push_cast; ring,
-      show ((i : ℤ) + 1 - 1) = (((i - 1 : ℕ) : ℤ) + 1) from by omega] at hr
-    exact hr
-  -- affine with equal endpoints, hence constant
-  have hlin := eq_linear_of_harmonic
-    (F := fun i : ℕ => (μ {ω | BothSides ((i : ℤ) + 1) ω}).toReal) hharm
-  have h10 := hlin 10 le_rfl
-  have hkey := hlin j hj
-  norm_num at h10 hkey
-  rw [hb1, hb11] at h10
-  rw [hb1] at hkey
-  have hF1 : (μ {ω | BothSides (2 : ℤ) ω}).toReal = 1 / 11 := by linarith
-  rw [hF1] at hkey
+  -- harmonic in between, hence affine, hence constant
+  have hlin := eq_linear_of_harmonic (F := fun b : ℤ => (μ {ω | BothSides b ω}).toReal)
+    (lo := 1) (hi := 11) fun b hb hb11 => toReal_of_rec (measure_ne_top _ _) (measure_ne_top _ _)
+      (measure_bothSides_rec hμ (by omega) (by omega))
+  have h11 := hlin 11 (by norm_num) le_rfl
+  have hkey := hlin a h1 h2
+  norm_num at h11 hkey
+  rw [hb1, hb11] at h11
+  rw [hb1, show (μ {ω | BothSides 2 ω}).toReal = 1 / 11 by linarith] at hkey
   linarith
 
 /-- **The ladybug stops on `k` with probability `1 / 11`**, proved a second time by restarting
