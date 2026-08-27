@@ -9,13 +9,23 @@ starting at noon, and stops the moment it has visited every field.
 More generally, the last field visited is uniformly distributed over the eleven
 fields other than the starting one.
 
-Proof sketch (not formalised here).  Fix a target field `k ≠ 0`.  Since the walk
-can only enter `k` through one of its two neighbours, `k` is the last field
-visited iff the walk reaches both `k - 1` and `k + 1` before it ever reaches `k`.
-Cutting the cycle open at `k` turns the walk into a simple random walk on a path
-of 11 interior vertices with the two copies of `k` absorbing, and the probability
-above is computed by gambler's ruin.  The dependence on the position of `k`
-relative to the start cancels, leaving `1 / 11` for every `k ≠ 0`.
+Proof.  Fix a target field `k ≠ 0`.  Since the walk can only enter `k` through one
+of its two neighbours, `k` is the last field visited iff the walk reaches both
+`k - 1` and `k + 1` before it ever reaches `k` (`lastField_eq_iff`).  One of the
+two neighbours is always reached first, so the two events cover a set of full
+measure and inclusion-exclusion turns the answer into the sum of their two
+probabilities, minus one.  Cutting the cycle open at `k` turns the walk into a
+simple random walk on `{0, …, 12}` started at `d = (-k).val`, with the two copies
+`0` and `12` of `k` absorbing; the two probabilities are then `d / 11` and
+`(12 - d) / 11` by gambler's ruin.  The dependence on `d` cancels, leaving
+`1 / 11` for every `k ≠ 0`.
+
+Everything is derived from the cylinder characterisation `IsFairCoinFlips` alone.
+The two inputs that need it are `eq_of_isFairCoinFlips`, which says those cylinder
+values determine the measure, and `measure_first_shift`, the Markov step: the
+first flip is fair and independent of the rest.  The latter makes first-step
+analysis available directly at the level of measures, so gambler's ruin follows
+from the discrete Laplace equation without any path counting.
 -/
 
 import Mathlib
@@ -852,6 +862,153 @@ theorem toReal_exitsAt_bot (hμ : IsFairCoinFlips μ) {N : ℕ} (hN : 0 < N) {j 
   field_simp
   ring
 
+/-! ### Cutting the clock open at `k`, in the integers
+
+Fix `k ≠ 0` and let `d = (-k).val ∈ {1, …, 11}` be the position of the start relative to `k`.
+The integer walk started at `d` tracks the clock walk shifted by `k`, and for as long as the
+clock walk avoids `k` the integer walk stays inside `[1, 11]`.  Under that correspondence,
+reaching `k - 1` before `k` becomes reaching `11` before `0`, and reaching `k + 1` before `k`
+becomes reaching `1` before `12`. -/
+
+private theorem intCast_zstep (b : Bool) : ((zstep b : ℤ) : Clock) = step b := by
+  cases b <;> simp [zstep, step]
+
+/-- The integer walk started at `a` tracks the clock walk, shifted by `k`. -/
+private theorem intCast_zwalk {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool) :
+    ∀ n, ((zwalk a ω n : ℤ) : Clock) = walk ω n - k := by
+  intro n
+  induction n with
+  | zero => rw [zwalk_zero, hak]; exact (zero_sub k).symm
+  | succ n ih => rw [zwalk_succ, Int.cast_add, ih, intCast_zstep, walk_succ]; ring
+
+private theorem walk_eq_iff_dvd {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) : walk ω m = k ↔ (12 : ℤ) ∣ zwalk a ω m := by
+  have h := ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m) 12
+  rw [intCast_zwalk hak ω m, sub_eq_zero] at h
+  simpa using h
+
+/-- For as long as the clock walk avoids `k`, the integer walk stays in `[1, 11]`: it moves by
+one at each step, and the only way out of `[1, 11]` is through `0` or `12`, both of which mean
+standing on `k`. -/
+private theorem zwalk_mem_Icc {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ha : 1 ≤ a)
+    (ha' : a ≤ 11) (ω : ℕ → Bool) {n : ℕ} (hn : ∀ m ≤ n, walk ω m ≠ k) :
+    ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+  intro m
+  induction m with
+  | zero => exact fun _ => ⟨ha, ha'⟩
+  | succ m ih =>
+      intro hm
+      obtain ⟨h1, h2⟩ := ih (by omega)
+      have hne : ¬ (12 : ℤ) ∣ zwalk a ω (m + 1) := by
+        rw [← walk_eq_iff_dvd hak]
+        exact hn (m + 1) hm
+      have hstep : zwalk a ω (m + 1) = zwalk a ω m + zstep (ω m) := zwalk_succ _ _ _
+      have hz : zstep (ω m) = 1 ∨ zstep (ω m) = -1 := by cases ω m <;> simp [zstep]
+      rw [hstep] at hne ⊢
+      rcases hz with h | h <;> rw [h] at hne ⊢ <;> omega
+
+private theorem eq_eleven_iff {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) (h1 : 1 ≤ zwalk a ω m) (h2 : zwalk a ω m ≤ 11) :
+    walk ω m = k - 1 ↔ zwalk a ω m = 11 := by
+  constructor
+  · intro h
+    have hz : ((zwalk a ω m + 1 : ℤ) : Clock) = 0 := by
+      push_cast
+      rw [intCast_zwalk hak ω m, h]
+      ring
+    have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m + 1) 12).1 hz
+    simp only [Nat.cast_ofNat] at hdvd
+    omega
+  · intro h
+    have hc := intCast_zwalk hak ω m
+    rw [h] at hc
+    have h11 : ((11 : ℤ) : Clock) = -1 := by decide
+    rw [h11] at hc
+    linear_combination -hc
+
+private theorem eq_one_iff {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) (h1 : 1 ≤ zwalk a ω m) (h2 : zwalk a ω m ≤ 11) :
+    walk ω m = k + 1 ↔ zwalk a ω m = 1 := by
+  constructor
+  · intro h
+    have hz : ((zwalk a ω m - 1 : ℤ) : Clock) = 0 := by
+      push_cast
+      rw [intCast_zwalk hak ω m, h]
+      ring
+    have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m - 1) 12).1 hz
+    simp only [Nat.cast_ofNat] at hdvd
+    omega
+  · intro h
+    have hc := intCast_zwalk hak ω m
+    rw [h] at hc
+    have h1' : ((1 : ℤ) : Clock) = 1 := by push_cast; ring
+    rw [h1'] at hc
+    linear_combination -hc
+
+/-- Reaching `k - 1` before `k` is reaching `11` before `0`. -/
+private theorem reachesBefore_sub_one_eq {k : Clock} {a : ℤ} (hak : (a : Clock) = -k)
+    (ha : 1 ≤ a) (ha' : a ≤ 11) :
+    {ω | ReachesBefore ω (k - 1) k} = {ω | ExitsAt a 11 11 ω} := by
+  ext ω
+  constructor
+  · rintro ⟨n, hn, hnk⟩
+    have hbd := zwalk_mem_Icc hak ha ha' ω hnk
+    have hn11 : zwalk a ω n = 11 :=
+      (eq_eleven_iff hak ω n (hbd n le_rfl).1 (hbd n le_rfl).2).1 hn
+    have hne : {i | zwalk a ω i = 11}.Nonempty := ⟨n, hn11⟩
+    refine ⟨sInf {i | zwalk a ω i = 11}, Nat.sInf_mem hne, fun m hm => ?_⟩
+    have hle : sInf {i | zwalk a ω i = 11} ≤ n := Nat.sInf_le hn11
+    have hb := hbd m (by omega)
+    have hne11 : zwalk a ω m ≠ 11 := Nat.notMem_of_lt_sInf hm
+    omega
+  · rintro ⟨n, hn, hbd⟩
+    have hall : ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+      intro m hm
+      rcases eq_or_lt_of_le hm with rfl | hlt
+      · omega
+      · have := hbd m hlt; omega
+    refine ⟨n, (eq_eleven_iff hak ω n (hall n le_rfl).1 (hall n le_rfl).2).2 hn, fun m hm => ?_⟩
+    intro hcon
+    rw [walk_eq_iff_dvd hak] at hcon
+    have := hall m hm
+    omega
+
+/-- Reaching `k + 1` before `k` is reaching `1` before `12`, i.e. reaching the bottom of the
+interval `[1, 12]`. -/
+private theorem reachesBefore_add_one_eq {k : Clock} {a : ℤ} (hak : (a : Clock) = -k)
+    (ha : 1 ≤ a) (ha' : a ≤ 11) :
+    {ω | ReachesBefore ω (k + 1) k} = {ω | ExitsAt (a - 1) 11 0 ω} := by
+  have hshift : ∀ (ω : ℕ → Bool) (m : ℕ), zwalk (a - 1) ω m = zwalk a ω m - 1 := by
+    intro ω m
+    rw [sub_eq_add_neg, zwalk_add_const]
+    ring
+  ext ω
+  constructor
+  · rintro ⟨n, hn, hnk⟩
+    have hbd := zwalk_mem_Icc hak ha ha' ω hnk
+    have hn1 : zwalk a ω n = 1 := (eq_one_iff hak ω n (hbd n le_rfl).1 (hbd n le_rfl).2).1 hn
+    have hne : {i | zwalk a ω i = 1}.Nonempty := ⟨n, hn1⟩
+    have hmem : zwalk a ω (sInf {i | zwalk a ω i = 1}) = 1 := Nat.sInf_mem hne
+    refine ⟨sInf {i | zwalk a ω i = 1}, by rw [hshift]; omega, fun m hm => ?_⟩
+    have hle : sInf {i | zwalk a ω i = 1} ≤ n := Nat.sInf_le hn1
+    have hb := hbd m (by omega)
+    have hne1 : zwalk a ω m ≠ 1 := Nat.notMem_of_lt_sInf hm
+    rw [hshift]
+    omega
+  · rintro ⟨n, hn, hbd⟩
+    rw [hshift] at hn
+    have hall : ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+      intro m hm
+      rcases eq_or_lt_of_le hm with rfl | hlt
+      · omega
+      · have := hbd m hlt; rw [hshift] at this; omega
+    refine ⟨n, (eq_one_iff hak ω n (hall n le_rfl).1 (hall n le_rfl).2).2 (by omega),
+      fun m hm => ?_⟩
+    intro hcon
+    rw [walk_eq_iff_dvd hak] at hcon
+    have := hall m hm
+    omega
+
 /-- **Gambler's ruin on the cut clock.**  Write `d = (-k).val ∈ {1, …, 11}` for the position of
 the start relative to `k`.  Cutting the cycle open at `k` turns the walk into a simple random
 walk on `{0, …, 12}` started at `d`, with both endpoints standing for `k`; reaching `k - 1`
@@ -860,7 +1017,24 @@ before `k` means reaching `1` before `12`, which has probability `(12 - d) / 11`
 up to `12 / 11 = 1 + 1 / 11`, independently of `d`. -/
 theorem prob_reachesBefore_add (hμ : IsFairCoinFlips μ) (k : Clock) (hk : k ≠ 0) :
     μ {ω | ReachesBefore ω (k - 1) k} + μ {ω | ReachesBefore ω (k + 1) k} = 1 + 1 / 11 := by
-  sorry
+  obtain ⟨hd1, hd11⟩ := val_mem_Icc (a := -k) (neg_ne_zero.mpr hk)
+  have hak : ((((-k).val : ℕ) : ℤ) : Clock) = -k := by push_cast; exact natCast_val_self _
+  have ha1 : (1 : ℤ) ≤ (((-k).val : ℕ) : ℤ) := by exact_mod_cast hd1
+  have ha11 : (((-k).val : ℕ) : ℤ) ≤ 11 := by exact_mod_cast hd11
+  rw [reachesBefore_sub_one_eq hak ha1 ha11, reachesBefore_add_one_eq hak ha1 ha11]
+  have hA := toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val) hd11
+  have hB := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val - 1)
+    (by omega)
+  simp only [Nat.cast_ofNat] at hA hB
+  rw [show ((((-k).val - 1 : ℕ)) : ℤ) = (((-k).val : ℕ) : ℤ) - 1 by omega] at hB
+  rw [Nat.cast_sub hd1] at hB
+  rw [← ENNReal.toReal_eq_toReal_iff'
+    (ENNReal.add_ne_top.mpr ⟨measure_ne_top _ _, measure_ne_top _ _⟩)
+    (ENNReal.add_ne_top.mpr ⟨ENNReal.one_ne_top, by norm_num⟩),
+    ENNReal.toReal_add (measure_ne_top _ _) (measure_ne_top _ _), hA, hB,
+    ENNReal.toReal_add ENNReal.one_ne_top (by norm_num)]
+  norm_num
+  ring
 
 /-! ## Main results -/
 
