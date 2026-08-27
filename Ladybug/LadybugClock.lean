@@ -9,13 +9,23 @@ starting at noon, and stops the moment it has visited every field.
 More generally, the last field visited is uniformly distributed over the eleven
 fields other than the starting one.
 
-Proof sketch (not formalised here).  Fix a target field `k ≠ 0`.  Since the walk
-can only enter `k` through one of its two neighbours, `k` is the last field
-visited iff the walk reaches both `k - 1` and `k + 1` before it ever reaches `k`.
-Cutting the cycle open at `k` turns the walk into a simple random walk on a path
-of 11 interior vertices with the two copies of `k` absorbing, and the probability
-above is computed by gambler's ruin.  The dependence on the position of `k`
-relative to the start cancels, leaving `1 / 11` for every `k ≠ 0`.
+Proof.  Fix a target field `k ≠ 0`.  Since the walk can only enter `k` through one
+of its two neighbours, `k` is the last field visited iff the walk reaches both
+`k - 1` and `k + 1` before it ever reaches `k` (`lastField_eq_iff`).  One of the
+two neighbours is always reached first, so the two events cover a set of full
+measure and inclusion-exclusion turns the answer into the sum of their two
+probabilities, minus one.  Cutting the cycle open at `k` turns the walk into a
+simple random walk on `{0, …, 12}` started at `d = (-k).val`, with the two copies
+`0` and `12` of `k` absorbing; the two probabilities are then `d / 11` and
+`(12 - d) / 11` by gambler's ruin.  The dependence on `d` cancels, leaving
+`1 / 11` for every `k ≠ 0`.
+
+Everything is derived from the cylinder characterisation `IsFairCoinFlips` alone.
+The two inputs that need it are `eq_of_isFairCoinFlips`, which says those cylinder
+values determine the measure, and `measure_first_shift`, the Markov step: the
+first flip is fair and independent of the rest.  The latter makes first-step
+analysis available directly at the level of measures, so gambler's ruin follows
+from the discrete Laplace equation without any path counting.
 -/
 
 import Mathlib
@@ -250,7 +260,7 @@ private theorem card_bad_block :
       simp at hb
     · intro hne
       by_contra hcon
-      push_neg at hcon
+      push Not at hcon
       exact hne (funext fun b => by simpa using hcon b)
   rw [hkey, Finset.card_erase_of_mem (Finset.mem_univ _), Finset.card_univ,
     Fintype.card_pi_const]
@@ -285,7 +295,7 @@ theorem ae_covers (hμ : IsFairCoinFlips μ) : ∀ᵐ ω ∂μ, Covers ω := by
   have hsub : {ω | ¬ Covers ω} ⊆ {ω | NoGoodBlock ω} := by
     intro ω hω N
     by_contra hcon
-    push_neg at hcon
+    push Not at hcon
     exact hω (covers_of_block (N := 11 * N) fun i hi => by simpa using hcon i hi)
   -- a union bound over the bad patterns of the first `M` blocks
   have hbound : ∀ M : ℕ, μ {ω | NoGoodBlock ω} ≤ ((2047 : ℝ≥0∞) * (1 / 2) ^ 11) ^ M := by
@@ -470,7 +480,7 @@ theorem measurableSet_reachesBefore (a k : Clock) :
   have hset : {ω | ReachesBefore ω a k}
       = ⋃ n, ({ω | walk ω n = a} ∩ ⋂ m ∈ Finset.range (n + 1), {ω | walk ω m = k}ᶜ) := by
     ext ω
-    simp only [ReachesBefore, Set.mem_setOf_eq, Set.mem_iUnion, Set.mem_inter_iff,
+    simp only [ReachesBefore, Set.mem_ofPred_eq, Set.mem_iUnion, Set.mem_inter_iff,
       Set.mem_iInter, Set.mem_compl_iff, Finset.mem_range, Nat.lt_succ_iff]
   rw [hset]
   refine MeasurableSet.iUnion fun n => ?_
@@ -501,6 +511,504 @@ theorem reachesBefore_or (ω : ℕ → Bool) (hω : Covers ω) (k : Clock) (hk :
     rw [h] at hsk
     linear_combination hsk
 
+/-! ## The cylinder characterisation pins down the measure -/
+
+theorem measurableSet_cylSet (s : Finset ℕ) (g : ℕ → Bool) :
+    MeasurableSet {ω : ℕ → Bool | ∀ i ∈ s, ω i = g i} := by
+  have hset : {ω : ℕ → Bool | ∀ i ∈ s, ω i = g i} = ⋂ i ∈ s, {ω : ℕ → Bool | ω i = g i} := by
+    ext ω; simp
+  rw [hset]
+  refine MeasurableSet.biInter s.countable_toSet fun i _ => ?_
+  show MeasurableSet ((fun f : ℕ → Bool => f i) ⁻¹' {g i})
+  exact measurable_pi_apply i (measurableSet_singleton (g i))
+
+/-- The coin-flip sequence spelled out by a point of `∀ i : s, Bool`. -/
+private def cylFun (s : Finset ℕ) (f : ∀ _ : s, Bool) : ℕ → Bool :=
+  fun j => if h : j ∈ s then f ⟨j, h⟩ else true
+
+private theorem cylinder_singleton_eq (s : Finset ℕ) (f : ∀ _ : s, Bool) :
+    cylinder (α := fun _ : ℕ => Bool) s {f} = {ω : ℕ → Bool | ∀ i ∈ s, ω i = cylFun s f i} := by
+  ext ω
+  simp only [mem_cylinder, Set.mem_singleton_iff, Set.mem_ofPred_eq, cylFun]
+  constructor
+  · intro h i hi
+    rw [dif_pos hi, ← h]
+    rfl
+  · intro h
+    funext i
+    have hi := h i.1 i.2
+    rw [dif_pos i.2] at hi
+    exact hi
+
+/-- Two fair coin-flip measures agree: the cylinder values determine the measure, since the
+cylinders form a π-system generating the σ-algebra. -/
+theorem eq_of_isFairCoinFlips {ν₁ ν₂ : Measure (ℕ → Bool)} [IsProbabilityMeasure ν₁]
+    [IsProbabilityMeasure ν₂] (h₁ : IsFairCoinFlips ν₁) (h₂ : IsFairCoinFlips ν₂) : ν₁ = ν₂ := by
+  classical
+  refine ext_of_generate_finite (measurableCylinders fun _ : ℕ => Bool)
+    generateFrom_measurableCylinders.symm isPiSystem_measurableCylinders ?_ (by simp)
+  rintro t ht
+  obtain ⟨s, S, hS, rfl⟩ := (mem_measurableCylinders t).1 ht
+  have hdecomp : ∀ lam : Measure (ℕ → Bool),
+      lam (cylinder (α := fun _ : ℕ => Bool) s S)
+        = ∑ f ∈ Finset.univ.filter (· ∈ S), lam (cylinder (α := fun _ : ℕ => Bool) s {f}) := by
+    intro lam
+    have hunion : cylinder (α := fun _ : ℕ => Bool) s S
+        = ⋃ f ∈ Finset.univ.filter (· ∈ S), cylinder (α := fun _ : ℕ => Bool) s {f} := by
+      ext ω
+      simp only [mem_cylinder, Set.mem_iUnion, Finset.mem_filter,
+        Finset.mem_univ, true_and, Set.mem_singleton_iff, exists_prop]
+      exact ⟨fun h => ⟨_, h, rfl⟩, fun ⟨f, hf, hfe⟩ => hfe ▸ hf⟩
+    rw [hunion]
+    refine measure_biUnion_finset ?_ fun f _ => MeasurableSet.cylinder s (measurableSet_singleton f)
+    intro f _ g _ hfg
+    simp only [Function.onFun, Set.disjoint_left]
+    intro ω hω hω'
+    rw [mem_cylinder, Set.mem_singleton_iff] at hω hω'
+    exact hfg (hω ▸ hω')
+  rw [hdecomp ν₁, hdecomp ν₂]
+  exact Finset.sum_congr rfl fun f _ => by rw [cylinder_singleton_eq, h₁, h₂]
+
+/-! ## Conditioning on the first flip -/
+
+/-- The shift that forgets the first coin flip. -/
+def shift (ω : ℕ → Bool) : ℕ → Bool := fun i => ω (i + 1)
+
+theorem measurable_shift : Measurable shift :=
+  measurable_pi_lambda _ fun i => measurable_pi_apply (i + 1)
+
+omit [IsProbabilityMeasure μ] in
+private theorem shiftMeasure_apply (b : Bool) {E : Set (ℕ → Bool)} (hE : MeasurableSet E) :
+    ((2 : ℝ≥0∞) • ((μ.restrict {ω : ℕ → Bool | ω 0 = b}).map shift)) E
+      = 2 * μ (shift ⁻¹' E ∩ {ω | ω 0 = b}) := by
+  rw [Measure.smul_apply, Measure.map_apply measurable_shift hE,
+    Measure.restrict_apply (measurable_shift hE), smul_eq_mul]
+
+private theorem two_mul_half : (2 : ℝ≥0∞) * (1 / 2) = 1 := by
+  rw [show (1 / 2 : ℝ≥0∞) = (2 : ℝ≥0∞)⁻¹ by norm_num]
+  exact ENNReal.mul_inv_cancel (by norm_num) (by norm_num)
+
+/-- **The first flip is fair and independent of the rest.** -/
+theorem measure_first_shift (hμ : IsFairCoinFlips μ) (b : Bool) {E : Set (ℕ → Bool)}
+    (hE : MeasurableSet E) : μ (shift ⁻¹' E ∩ {ω | ω 0 = b}) = (1 / 2 : ℝ≥0∞) * μ E := by
+  classical
+  set ν : Measure (ℕ → Bool) := (2 : ℝ≥0∞) • ((μ.restrict {ω : ℕ → Bool | ω 0 = b}).map shift)
+    with hν
+  have hfair : IsFairCoinFlips ν := by
+    intro s g
+    rw [hν, shiftMeasure_apply b (measurableSet_cylSet s g)]
+    have hset : shift ⁻¹' {ω : ℕ → Bool | ∀ i ∈ s, ω i = g i} ∩ {ω | ω 0 = b}
+        = {ω : ℕ → Bool | ∀ j ∈ insert 0 (s.image (· + 1)),
+            ω j = (fun j => if j = 0 then b else g (j - 1)) j} := by
+      ext ω
+      simp only [Set.mem_inter_iff, Set.mem_preimage, Set.mem_ofPred_eq, shift,
+        Finset.mem_insert, Finset.mem_image]
+      constructor
+      · rintro ⟨h1, h2⟩ j (rfl | ⟨i, hi, rfl⟩)
+        · simpa using h2
+        · simpa using h1 i hi
+      · intro h
+        refine ⟨fun i hi => ?_, by simpa using h 0 (Or.inl rfl)⟩
+        have := h (i + 1) (Or.inr ⟨i, hi, rfl⟩)
+        simpa using this
+    have hcard : (insert 0 (s.image (· + 1))).card = s.card + 1 := by
+      rw [Finset.card_insert_of_notMem (by simp),
+        Finset.card_image_of_injective _ (fun a b hab => by omega)]
+    rw [hset, hμ, hcard, pow_succ]
+    calc (2 : ℝ≥0∞) * ((1 / 2) ^ s.card * (1 / 2))
+        = (1 / 2 : ℝ≥0∞) ^ s.card * (2 * (1 / 2)) := by ring
+      _ = (1 / 2 : ℝ≥0∞) ^ s.card := by rw [two_mul_half, mul_one]
+  have hprob : IsProbabilityMeasure ν := ⟨by simpa using hfair ∅ (fun _ => true)⟩
+  have hνμ : ν = μ := eq_of_isFairCoinFlips hfair hμ
+  have happ := shiftMeasure_apply (μ := μ) b hE
+  rw [← hν, hνμ] at happ
+  rw [happ, ← mul_assoc, mul_comm (1 / 2 : ℝ≥0∞) 2, two_mul_half, one_mul]
+
+
+private theorem measurableSet_first (b : Bool) : MeasurableSet {ω : ℕ → Bool | ω 0 = b} := by
+  show MeasurableSet ((fun ω : ℕ → Bool => ω 0) ⁻¹' {b})
+  exact measurable_pi_apply 0 (measurableSet_singleton b)
+
+/-! ## The ±1 walk on the integers -/
+
+/-- A single ±1 step. -/
+def zstep (b : Bool) : ℤ := if b then 1 else -1
+
+/-- The ±1 walk started at `a`. -/
+def zwalk (a : ℤ) (ω : ℕ → Bool) : ℕ → ℤ
+  | 0 => a
+  | n + 1 => zwalk a ω n + zstep (ω n)
+
+theorem zwalk_zero (a : ℤ) (ω : ℕ → Bool) : zwalk a ω 0 = a := rfl
+
+theorem zwalk_succ (a : ℤ) (ω : ℕ → Bool) (n : ℕ) :
+    zwalk a ω (n + 1) = zwalk a ω n + zstep (ω n) := rfl
+
+theorem zwalk_add_const (a c : ℤ) (ω : ℕ → Bool) (n : ℕ) :
+    zwalk (a + c) ω n = zwalk a ω n + c := by
+  induction n with
+  | zero => rfl
+  | succ n ih => rw [zwalk_succ, zwalk_succ, ih]; ring
+
+/-- Peeling the first flip off the walk. -/
+theorem zwalk_shift (a : ℤ) (ω : ℕ → Bool) (n : ℕ) :
+    zwalk a ω (n + 1) = zwalk (a + zstep (ω 0)) (shift ω) n := by
+  induction n with
+  | zero => rfl
+  | succ n ih => rw [zwalk_succ (n := n + 1), ih, zwalk_succ]; rfl
+
+theorem measurable_zwalk (a : ℤ) (n : ℕ) : Measurable fun ω => zwalk a ω n := by
+  induction n with
+  | zero => exact measurable_const
+  | succ n ih =>
+      simp only [zwalk_succ]
+      exact ih.add ((Measurable.of_discrete : Measurable zstep).comp (measurable_pi_apply n))
+
+/-! ## Gambler's ruin -/
+
+/-- The walk started at `a` reaches `t` at a time before which it has stayed strictly inside
+the open interval `(0, N)`.  For `t = N` this says it leaves `[0, N]` through the top, for
+`t = 0` through the bottom. -/
+def ExitsAt (a N t : ℤ) (ω : ℕ → Bool) : Prop :=
+  ∃ n, zwalk a ω n = t ∧ ∀ m < n, 0 < zwalk a ω m ∧ zwalk a ω m < N
+
+theorem measurableSet_exitsAt (a N t : ℤ) : MeasurableSet {ω | ExitsAt a N t ω} := by
+  have hset : {ω | ExitsAt a N t ω}
+      = ⋃ n, ({ω | zwalk a ω n = t}
+          ∩ ⋂ m ∈ Finset.range n, {ω | 0 < zwalk a ω m ∧ zwalk a ω m < N}) := by
+    ext ω
+    simp only [ExitsAt, Set.mem_ofPred_eq, Set.mem_iUnion, Set.mem_inter_iff, Set.mem_iInter,
+      Finset.mem_range]
+  rw [hset]
+  refine MeasurableSet.iUnion fun n => ?_
+  refine MeasurableSet.inter ?_ ?_
+  · show MeasurableSet ((fun ω => zwalk a ω n) ⁻¹' {t})
+    exact measurable_zwalk a n (measurableSet_singleton t)
+  · refine MeasurableSet.biInter (Finset.range n).countable_toSet fun m _ => ?_
+    show MeasurableSet ((fun ω => zwalk a ω m) ⁻¹' {x : ℤ | 0 < x ∧ x < N})
+    exact measurable_zwalk a m MeasurableSet.of_discrete
+
+/-- First-step analysis: from an interior point the walk takes one step and starts afresh. -/
+theorem exitsAt_iff_shift {a N t : ℤ} (h0 : 0 < a) (hN : a < N) (hat : a ≠ t) (ω : ℕ → Bool) :
+    ExitsAt a N t ω ↔ ExitsAt (a + zstep (ω 0)) N t (shift ω) := by
+  constructor
+  · rintro ⟨n, hn, hbd⟩
+    obtain ⟨n', rfl⟩ : ∃ n', n = n' + 1 := by
+      cases n with
+      | zero => exact absurd hn hat
+      | succ n' => exact ⟨n', rfl⟩
+    exact ⟨n', by rw [← zwalk_shift]; exact hn,
+      fun m hm => by rw [← zwalk_shift]; exact hbd (m + 1) (by omega)⟩
+  · rintro ⟨n, hn, hbd⟩
+    refine ⟨n + 1, by rw [zwalk_shift]; exact hn, fun m hm => ?_⟩
+    cases m with
+    | zero => exact ⟨h0, hN⟩
+    | succ m' => rw [zwalk_shift]; exact hbd m' (by omega)
+
+/-- The ruin probability satisfies the discrete Laplace equation in the interior. -/
+theorem measure_exitsAt_rec (hμ : IsFairCoinFlips μ) {a N t : ℤ} (h0 : 0 < a) (hN : a < N)
+    (hat : a ≠ t) :
+    μ {ω | ExitsAt a N t ω}
+      = 1 / 2 * μ {ω | ExitsAt (a + 1) N t ω} + 1 / 2 * μ {ω | ExitsAt (a - 1) N t ω} := by
+  have hsplit : {ω | ExitsAt a N t ω}
+      = (shift ⁻¹' {ω | ExitsAt (a + 1) N t ω} ∩ {ω | ω 0 = true})
+        ∪ (shift ⁻¹' {ω | ExitsAt (a - 1) N t ω} ∩ {ω | ω 0 = false}) := by
+    ext ω
+    simp only [Set.mem_ofPred_eq, Set.mem_union, Set.mem_inter_iff, Set.mem_preimage]
+    constructor
+    · intro h
+      rw [exitsAt_iff_shift h0 hN hat ω] at h
+      rcases hb : ω 0 with _ | _
+      · rw [hb] at h
+        exact Or.inr ⟨by simpa [zstep, sub_eq_add_neg] using h, rfl⟩
+      · rw [hb] at h
+        exact Or.inl ⟨by simpa [zstep] using h, rfl⟩
+    · rintro (⟨h, hb⟩ | ⟨h, hb⟩)
+      · have hb' : ω 0 = true := hb
+        rw [exitsAt_iff_shift h0 hN hat ω, hb']
+        simpa [zstep] using h
+      · have hb' : ω 0 = false := hb
+        rw [exitsAt_iff_shift h0 hN hat ω, hb']
+        simpa [zstep, sub_eq_add_neg] using h
+  have hdisj : Disjoint (shift ⁻¹' {ω | ExitsAt (a + 1) N t ω} ∩ {ω : ℕ → Bool | ω 0 = true})
+      (shift ⁻¹' {ω | ExitsAt (a - 1) N t ω} ∩ {ω : ℕ → Bool | ω 0 = false}) := by
+    rw [Set.disjoint_left]
+    rintro ω ⟨-, h1⟩ ⟨-, h2⟩
+    have h1' : ω 0 = true := h1
+    have h2' : ω 0 = false := h2
+    rw [h1'] at h2'
+    exact Bool.noConfusion h2'
+  rw [hsplit, measure_union hdisj
+      ((measurable_shift (measurableSet_exitsAt _ _ _)).inter (measurableSet_first false)),
+    measure_first_shift hμ true (measurableSet_exitsAt _ _ _),
+    measure_first_shift hμ false (measurableSet_exitsAt _ _ _)]
+
+
+
+/-! ### Boundary values -/
+
+theorem exitsAt_self (N t : ℤ) (ω : ℕ → Bool) : ExitsAt t N t ω :=
+  ⟨0, rfl, fun m hm => absurd hm (Nat.not_lt_zero m)⟩
+
+theorem not_exitsAt {a N t : ℤ} (hat : a ≠ t) (ha : ¬(0 < a ∧ a < N)) (ω : ℕ → Bool) :
+    ¬ ExitsAt a N t ω := by
+  rintro ⟨n, hn, hbd⟩
+  cases n with
+  | zero => exact hat hn
+  | succ n' => exact ha (hbd 0 (by omega))
+
+omit [IsProbabilityMeasure μ] in
+theorem measure_exitsAt_eq_zero {a N t : ℤ} (hat : a ≠ t) (ha : ¬(0 < a ∧ a < N)) :
+    μ {ω | ExitsAt a N t ω} = 0 := by
+  have hempty : {ω | ExitsAt a N t ω} = ∅ := Set.eq_empty_of_forall_notMem (not_exitsAt hat ha)
+  rw [hempty, measure_empty]
+
+theorem measure_exitsAt_eq_one (N t : ℤ) : μ {ω | ExitsAt t N t ω} = 1 := by
+  have huniv : {ω | ExitsAt t N t ω} = Set.univ := Set.eq_univ_of_forall (exitsAt_self N t)
+  rw [huniv, measure_univ]
+
+/-! ### Solving the discrete Laplace equation -/
+
+private theorem eq_linear_of_harmonic {F : ℕ → ℝ} {N : ℕ}
+    (h : ∀ j, 0 < j → j < N → 2 * F j = F (j + 1) + F (j - 1)) :
+    ∀ j, j ≤ N → F j = F 0 + j * (F 1 - F 0) := by
+  have key : ∀ j, j ≤ N → F j = F 0 + j * (F 1 - F 0) ∧
+      (j + 1 ≤ N → F (j + 1) = F 0 + (j + 1 : ℕ) * (F 1 - F 0)) := by
+    intro j
+    induction j with
+    | zero => exact fun _ => ⟨by simp, fun _ => by push_cast; ring⟩
+    | succ j ih =>
+        intro hj
+        obtain ⟨e0, e1⟩ := ih (by omega)
+        refine ⟨e1 hj, fun hj2 => ?_⟩
+        have hrec := h (j + 1) (by omega) (by omega)
+        simp only [Nat.add_sub_cancel] at hrec
+        have ej1 := e1 hj
+        push_cast at e0 ej1 ⊢
+        linear_combination -hrec + 2 * ej1 - e0
+  exact fun j hj => (key j hj).1
+
+private theorem toReal_rec (hμ : IsFairCoinFlips μ) {a N t : ℤ} (h0 : 0 < a) (hN : a < N)
+    (hat : a ≠ t) :
+    2 * (μ {ω | ExitsAt a N t ω}).toReal
+      = (μ {ω | ExitsAt (a + 1) N t ω}).toReal + (μ {ω | ExitsAt (a - 1) N t ω}).toReal := by
+  rw [measure_exitsAt_rec hμ h0 hN hat,
+    ENNReal.toReal_add (ENNReal.mul_ne_top (by norm_num) (measure_ne_top _ _))
+      (ENNReal.mul_ne_top (by norm_num) (measure_ne_top _ _)),
+    ENNReal.toReal_mul, ENNReal.toReal_mul, show (1 / 2 : ℝ≥0∞).toReal = 1 / 2 by norm_num]
+  ring
+
+/-- The ruin probability is an affine function of the starting point. -/
+private theorem toReal_exitsAt_affine (hμ : IsFairCoinFlips μ) {N : ℕ} {t : ℤ}
+    (hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ t) {j : ℕ} (hj : j ≤ N) :
+    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) t ω}).toReal
+      = (μ {ω | ExitsAt (0 : ℤ) (N : ℤ) t ω}).toReal
+        + j * ((μ {ω | ExitsAt (1 : ℤ) (N : ℤ) t ω}).toReal
+             - (μ {ω | ExitsAt (0 : ℤ) (N : ℤ) t ω}).toReal) := by
+  have hharm : ∀ i : ℕ, 0 < i → i < N →
+      2 * (μ {ω | ExitsAt ((i : ℕ) : ℤ) (N : ℤ) t ω}).toReal
+        = (μ {ω | ExitsAt ((i + 1 : ℕ) : ℤ) (N : ℤ) t ω}).toReal
+          + (μ {ω | ExitsAt ((i - 1 : ℕ) : ℤ) (N : ℤ) t ω}).toReal := by
+    intro i hi hiN
+    have hr := toReal_rec hμ (a := (i : ℤ)) (N := (N : ℤ)) (t := t)
+      (by exact_mod_cast hi) (by exact_mod_cast hiN) (hint i hi hiN)
+    rw [show ((i : ℤ) + 1) = ((i + 1 : ℕ) : ℤ) by push_cast; ring,
+      show ((i : ℤ) - 1) = ((i - 1 : ℕ) : ℤ) by omega] at hr
+    exact hr
+  have hkey := eq_linear_of_harmonic
+    (F := fun i : ℕ => (μ {ω | ExitsAt ((i : ℕ) : ℤ) (N : ℤ) t ω}).toReal) hharm j hj
+  simpa using hkey
+
+/-- **Gambler's ruin, upper barrier.**  Started at `j ∈ {0, …, N}`, the walk reaches `N` before
+`0` with probability `j / N`. -/
+theorem toReal_exitsAt_top (hμ : IsFairCoinFlips μ) {N : ℕ} (hN : 0 < N) {j : ℕ} (hj : j ≤ N) :
+    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) (N : ℤ) ω}).toReal = j / N := by
+  have hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ (N : ℤ) := fun i _ hiN => by
+    exact_mod_cast Nat.ne_of_lt hiN
+  have h0 : μ {ω | ExitsAt (0 : ℤ) (N : ℤ) (N : ℤ) ω} = 0 :=
+    measure_exitsAt_eq_zero (by exact_mod_cast hN.ne) (by omega)
+  have hNN : μ {ω | ExitsAt ((N : ℕ) : ℤ) (N : ℤ) (N : ℤ) ω} = 1 := measure_exitsAt_eq_one _ _
+  have keyN := toReal_exitsAt_affine hμ hint (j := N) le_rfl
+  have keyj := toReal_exitsAt_affine hμ hint hj
+  rw [h0] at keyN keyj
+  rw [hNN] at keyN
+  simp only [ENNReal.toReal_zero, ENNReal.toReal_one, sub_zero, zero_add] at keyN keyj
+  have hN' : (N : ℝ) ≠ 0 := Nat.cast_ne_zero.mpr hN.ne'
+  have hF1 : (μ {ω | ExitsAt (1 : ℤ) (N : ℤ) (N : ℤ) ω}).toReal = 1 / N := by
+    field_simp
+    linarith [keyN]
+  rw [keyj, hF1]
+  field_simp
+
+/-- **Gambler's ruin, lower barrier.**  Started at `j ∈ {0, …, N}`, the walk reaches `0` before
+`N` with probability `(N - j) / N`. -/
+theorem toReal_exitsAt_bot (hμ : IsFairCoinFlips μ) {N : ℕ} (hN : 0 < N) {j : ℕ} (hj : j ≤ N) :
+    (μ {ω | ExitsAt (j : ℤ) (N : ℤ) 0 ω}).toReal = ((N : ℝ) - j) / N := by
+  have hint : ∀ i : ℕ, 0 < i → i < N → (i : ℤ) ≠ 0 := fun i hi _ => by
+    exact_mod_cast hi.ne'
+  have h0 : μ {ω | ExitsAt (0 : ℤ) (N : ℤ) 0 ω} = 1 := measure_exitsAt_eq_one _ _
+  have hNN : μ {ω | ExitsAt ((N : ℕ) : ℤ) (N : ℤ) 0 ω} = 0 :=
+    measure_exitsAt_eq_zero (by exact_mod_cast hN.ne') (by omega)
+  have keyN := toReal_exitsAt_affine hμ hint (j := N) le_rfl
+  have keyj := toReal_exitsAt_affine hμ hint hj
+  rw [h0] at keyN keyj
+  rw [hNN] at keyN
+  simp only [ENNReal.toReal_zero, ENNReal.toReal_one] at keyN keyj
+  have hN' : (N : ℝ) ≠ 0 := Nat.cast_ne_zero.mpr hN.ne'
+  have hF1 : (μ {ω | ExitsAt (1 : ℤ) (N : ℤ) 0 ω}).toReal = 1 - 1 / N := by
+    field_simp
+    linarith [keyN]
+  rw [keyj, hF1]
+  field_simp
+  ring
+
+/-! ### Cutting the clock open at `k`, in the integers
+
+Fix `k ≠ 0` and let `d = (-k).val ∈ {1, …, 11}` be the position of the start relative to `k`.
+The integer walk started at `d` tracks the clock walk shifted by `k`, and for as long as the
+clock walk avoids `k` the integer walk stays inside `[1, 11]`.  Under that correspondence,
+reaching `k - 1` before `k` becomes reaching `11` before `0`, and reaching `k + 1` before `k`
+becomes reaching `1` before `12`. -/
+
+private theorem intCast_zstep (b : Bool) : ((zstep b : ℤ) : Clock) = step b := by
+  cases b <;> simp [zstep, step]
+
+/-- The integer walk started at `a` tracks the clock walk, shifted by `k`. -/
+private theorem intCast_zwalk {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool) :
+    ∀ n, ((zwalk a ω n : ℤ) : Clock) = walk ω n - k := by
+  intro n
+  induction n with
+  | zero => rw [zwalk_zero, hak]; exact (zero_sub k).symm
+  | succ n ih => rw [zwalk_succ, Int.cast_add, ih, intCast_zstep, walk_succ]; ring
+
+private theorem walk_eq_iff_dvd {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) : walk ω m = k ↔ (12 : ℤ) ∣ zwalk a ω m := by
+  have h := ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m) 12
+  rw [intCast_zwalk hak ω m, sub_eq_zero] at h
+  simpa using h
+
+/-- For as long as the clock walk avoids `k`, the integer walk stays in `[1, 11]`: it moves by
+one at each step, and the only way out of `[1, 11]` is through `0` or `12`, both of which mean
+standing on `k`. -/
+private theorem zwalk_mem_Icc {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ha : 1 ≤ a)
+    (ha' : a ≤ 11) (ω : ℕ → Bool) {n : ℕ} (hn : ∀ m ≤ n, walk ω m ≠ k) :
+    ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+  intro m
+  induction m with
+  | zero => exact fun _ => ⟨ha, ha'⟩
+  | succ m ih =>
+      intro hm
+      obtain ⟨h1, h2⟩ := ih (by omega)
+      have hne : ¬ (12 : ℤ) ∣ zwalk a ω (m + 1) := by
+        rw [← walk_eq_iff_dvd hak]
+        exact hn (m + 1) hm
+      have hstep : zwalk a ω (m + 1) = zwalk a ω m + zstep (ω m) := zwalk_succ _ _ _
+      have hz : zstep (ω m) = 1 ∨ zstep (ω m) = -1 := by cases ω m <;> simp [zstep]
+      rw [hstep] at hne ⊢
+      rcases hz with h | h <;> rw [h] at hne ⊢ <;> omega
+
+private theorem eq_eleven_iff {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) (h1 : 1 ≤ zwalk a ω m) (h2 : zwalk a ω m ≤ 11) :
+    walk ω m = k - 1 ↔ zwalk a ω m = 11 := by
+  constructor
+  · intro h
+    have hz : ((zwalk a ω m + 1 : ℤ) : Clock) = 0 := by
+      push_cast
+      rw [intCast_zwalk hak ω m, h]
+      ring
+    have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m + 1) 12).1 hz
+    simp only [Nat.cast_ofNat] at hdvd
+    omega
+  · intro h
+    have hc := intCast_zwalk hak ω m
+    rw [h] at hc
+    have h11 : ((11 : ℤ) : Clock) = -1 := by decide
+    rw [h11] at hc
+    linear_combination -hc
+
+private theorem eq_one_iff {k : Clock} {a : ℤ} (hak : (a : Clock) = -k) (ω : ℕ → Bool)
+    (m : ℕ) (h1 : 1 ≤ zwalk a ω m) (h2 : zwalk a ω m ≤ 11) :
+    walk ω m = k + 1 ↔ zwalk a ω m = 1 := by
+  constructor
+  · intro h
+    have hz : ((zwalk a ω m - 1 : ℤ) : Clock) = 0 := by
+      push_cast
+      rw [intCast_zwalk hak ω m, h]
+      ring
+    have hdvd := (ZMod.intCast_zmod_eq_zero_iff_dvd (zwalk a ω m - 1) 12).1 hz
+    simp only [Nat.cast_ofNat] at hdvd
+    omega
+  · intro h
+    have hc := intCast_zwalk hak ω m
+    rw [h] at hc
+    have h1' : ((1 : ℤ) : Clock) = 1 := by push_cast; ring
+    rw [h1'] at hc
+    linear_combination -hc
+
+/-- Reaching `k - 1` before `k` is reaching `11` before `0`. -/
+private theorem reachesBefore_sub_one_eq {k : Clock} {a : ℤ} (hak : (a : Clock) = -k)
+    (ha : 1 ≤ a) (ha' : a ≤ 11) :
+    {ω | ReachesBefore ω (k - 1) k} = {ω | ExitsAt a 11 11 ω} := by
+  ext ω
+  constructor
+  · rintro ⟨n, hn, hnk⟩
+    have hbd := zwalk_mem_Icc hak ha ha' ω hnk
+    have hn11 : zwalk a ω n = 11 :=
+      (eq_eleven_iff hak ω n (hbd n le_rfl).1 (hbd n le_rfl).2).1 hn
+    have hne : {i | zwalk a ω i = 11}.Nonempty := ⟨n, hn11⟩
+    refine ⟨sInf {i | zwalk a ω i = 11}, Nat.sInf_mem hne, fun m hm => ?_⟩
+    have hle : sInf {i | zwalk a ω i = 11} ≤ n := Nat.sInf_le hn11
+    have hb := hbd m (by omega)
+    have hne11 : zwalk a ω m ≠ 11 := Nat.notMem_of_lt_sInf hm
+    omega
+  · rintro ⟨n, hn, hbd⟩
+    have hall : ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+      intro m hm
+      rcases eq_or_lt_of_le hm with rfl | hlt
+      · omega
+      · have := hbd m hlt; omega
+    refine ⟨n, (eq_eleven_iff hak ω n (hall n le_rfl).1 (hall n le_rfl).2).2 hn, fun m hm => ?_⟩
+    intro hcon
+    rw [walk_eq_iff_dvd hak] at hcon
+    have := hall m hm
+    omega
+
+/-- Reaching `k + 1` before `k` is reaching `1` before `12`, i.e. reaching the bottom of the
+interval `[1, 12]`. -/
+private theorem reachesBefore_add_one_eq {k : Clock} {a : ℤ} (hak : (a : Clock) = -k)
+    (ha : 1 ≤ a) (ha' : a ≤ 11) :
+    {ω | ReachesBefore ω (k + 1) k} = {ω | ExitsAt (a - 1) 11 0 ω} := by
+  have hshift : ∀ (ω : ℕ → Bool) (m : ℕ), zwalk (a - 1) ω m = zwalk a ω m - 1 := by
+    intro ω m
+    rw [sub_eq_add_neg, zwalk_add_const]
+    ring
+  ext ω
+  constructor
+  · rintro ⟨n, hn, hnk⟩
+    have hbd := zwalk_mem_Icc hak ha ha' ω hnk
+    have hn1 : zwalk a ω n = 1 := (eq_one_iff hak ω n (hbd n le_rfl).1 (hbd n le_rfl).2).1 hn
+    have hne : {i | zwalk a ω i = 1}.Nonempty := ⟨n, hn1⟩
+    have hmem : zwalk a ω (sInf {i | zwalk a ω i = 1}) = 1 := Nat.sInf_mem hne
+    refine ⟨sInf {i | zwalk a ω i = 1}, by rw [hshift]; omega, fun m hm => ?_⟩
+    have hle : sInf {i | zwalk a ω i = 1} ≤ n := Nat.sInf_le hn1
+    have hb := hbd m (by omega)
+    have hne1 : zwalk a ω m ≠ 1 := Nat.notMem_of_lt_sInf hm
+    rw [hshift]
+    omega
+  · rintro ⟨n, hn, hbd⟩
+    rw [hshift] at hn
+    have hall : ∀ m ≤ n, 1 ≤ zwalk a ω m ∧ zwalk a ω m ≤ 11 := by
+      intro m hm
+      rcases eq_or_lt_of_le hm with rfl | hlt
+      · omega
+      · have := hbd m hlt; rw [hshift] at this; omega
+    refine ⟨n, (eq_one_iff hak ω n (hall n le_rfl).1 (hall n le_rfl).2).2 (by omega),
+      fun m hm => ?_⟩
+    intro hcon
+    rw [walk_eq_iff_dvd hak] at hcon
+    have := hall m hm
+    omega
+
 /-- **Gambler's ruin on the cut clock.**  Write `d = (-k).val ∈ {1, …, 11}` for the position of
 the start relative to `k`.  Cutting the cycle open at `k` turns the walk into a simple random
 walk on `{0, …, 12}` started at `d`, with both endpoints standing for `k`; reaching `k - 1`
@@ -509,7 +1017,24 @@ before `k` means reaching `1` before `12`, which has probability `(12 - d) / 11`
 up to `12 / 11 = 1 + 1 / 11`, independently of `d`. -/
 theorem prob_reachesBefore_add (hμ : IsFairCoinFlips μ) (k : Clock) (hk : k ≠ 0) :
     μ {ω | ReachesBefore ω (k - 1) k} + μ {ω | ReachesBefore ω (k + 1) k} = 1 + 1 / 11 := by
-  sorry
+  obtain ⟨hd1, hd11⟩ := val_mem_Icc (a := -k) (neg_ne_zero.mpr hk)
+  have hak : ((((-k).val : ℕ) : ℤ) : Clock) = -k := by push_cast; exact natCast_val_self _
+  have ha1 : (1 : ℤ) ≤ (((-k).val : ℕ) : ℤ) := by exact_mod_cast hd1
+  have ha11 : (((-k).val : ℕ) : ℤ) ≤ 11 := by exact_mod_cast hd11
+  rw [reachesBefore_sub_one_eq hak ha1 ha11, reachesBefore_add_one_eq hak ha1 ha11]
+  have hA := toReal_exitsAt_top (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val) hd11
+  have hB := toReal_exitsAt_bot (μ := μ) hμ (N := 11) (by norm_num) (j := (-k).val - 1)
+    (by omega)
+  simp only [Nat.cast_ofNat] at hA hB
+  rw [show ((((-k).val - 1 : ℕ)) : ℤ) = (((-k).val : ℕ) : ℤ) - 1 by omega] at hB
+  rw [Nat.cast_sub hd1] at hB
+  rw [← ENNReal.toReal_eq_toReal_iff'
+    (ENNReal.add_ne_top.mpr ⟨measure_ne_top _ _, measure_ne_top _ _⟩)
+    (ENNReal.add_ne_top.mpr ⟨ENNReal.one_ne_top, by norm_num⟩),
+    ENNReal.toReal_add (measure_ne_top _ _) (measure_ne_top _ _), hA, hB,
+    ENNReal.toReal_add ENNReal.one_ne_top (by norm_num)]
+  norm_num
+  ring
 
 /-! ## Main results -/
 
@@ -552,5 +1077,40 @@ theorem prob_stops_at_noon (hμ : IsFairCoinFlips μ) :
     μ {ω | lastField ω = 0} = 0 := by
   have hnull : μ {ω | ¬ Covers ω} = 0 := ae_iff.mp (ae_covers hμ)
   exact measure_mono_null (fun ω hω hc => lastField_ne_zero ω hc hω) hnull
+
+/-! ## The driving measure exists
+
+The results above are stated for an arbitrary `μ` satisfying `IsFairCoinFlips`.  Mathlib's
+infinite product of fair Bernoulli measures is such a `μ`, so the hypothesis is satisfiable and
+the results are not vacuous. -/
+
+/-- The fair coin: mass `1 / 2` on each of `true` and `false`. -/
+noncomputable def fairCoin : Measure Bool :=
+  (1 / 2 : ℝ≥0∞) • Measure.dirac true + (1 / 2 : ℝ≥0∞) • Measure.dirac false
+
+instance : IsProbabilityMeasure fairCoin :=
+  ⟨by simp [fairCoin, ENNReal.inv_two_add_inv_two]⟩
+
+theorem fairCoin_singleton (b : Bool) : fairCoin {b} = 1 / 2 := by
+  cases b <;> simp [fairCoin]
+
+/-- The infinite product of fair coins: an explicit measure driving the ladybug's walk. -/
+noncomputable def coinFlips : Measure (ℕ → Bool) := Measure.infinitePi fun _ : ℕ => fairCoin
+
+instance : IsProbabilityMeasure coinFlips := by
+  unfold coinFlips; infer_instance
+
+theorem isFairCoinFlips_coinFlips : IsFairCoinFlips coinFlips := by
+  intro s f
+  have hset : {ω : ℕ → Bool | ∀ i ∈ s, ω i = f i} = Set.pi (s : Set ℕ) fun i => {f i} := by
+    ext ω; simp [Set.mem_pi]
+  rw [hset, coinFlips,
+    Measure.infinitePi_pi (fun _ : ℕ => fairCoin) fun i _ => measurableSet_singleton (f i)]
+  simp [fairCoin_singleton]
+
+/-- **The ladybug stops on the 3 o'clock field with probability `1 / 11`**, for the explicit
+infinite product of fair coin flips. -/
+theorem coinFlips_stops_at_three : coinFlips {ω | lastField ω = 3} = 1 / 11 :=
+  prob_stops_at_three isFairCoinFlips_coinFlips
 
 end LadybugClock
