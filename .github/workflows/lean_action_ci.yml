@@ -5,15 +5,30 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read # Read access to repository contents
-  pages: write # Write access to GitHub Pages
-  id-token: write # Write access to ID tokens
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+
+  # `docgen-action` builds documentation for the entire Mathlib dependency tree,
+  # which takes hours -- far longer than the project build itself. It is kept off
+  # the push path and run manually instead, via "Run workflow" in the Actions tab.
+  # Note that deploying to Pages requires Pages to be enabled, which needs a paid
+  # plan while this repository is private.
+  docs:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read # Read access to repository contents
+      pages: write # Write access to GitHub Pages
+      id-token: write # Write access to ID tokens
 
     steps:
       - uses: actions/checkout@v5
