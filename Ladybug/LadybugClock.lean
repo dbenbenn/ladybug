@@ -458,12 +458,87 @@ theorem lastField_eq_iff (ω : ℕ → Bool) (hω : Covers ω) (k : Clock) (_hk 
     change walk ω (coverTime ω) = k
     rw [show coverTime ω = s from le_antisymm hTle hsle, hsk]
 
+/-! ## Reduction to gambler's ruin
+
+By the structural lemma, the ladybug stops on `k` exactly when it reaches both neighbours of
+`k` before `k`.  One of the two neighbours is *always* reached before `k` — the walk has to
+step onto `k` from somewhere — so the two events cover a set of full measure, and
+inclusion–exclusion turns the answer into the sum of two ruin probabilities. -/
+
+theorem measurableSet_reachesBefore (a k : Clock) :
+    MeasurableSet {ω | ReachesBefore ω a k} := by
+  have hset : {ω | ReachesBefore ω a k}
+      = ⋃ n, ({ω | walk ω n = a} ∩ ⋂ m ∈ Finset.range (n + 1), {ω | walk ω m = k}ᶜ) := by
+    ext ω
+    simp only [ReachesBefore, Set.mem_setOf_eq, Set.mem_iUnion, Set.mem_inter_iff,
+      Set.mem_iInter, Set.mem_compl_iff, Finset.mem_range, Nat.lt_succ_iff]
+  rw [hset]
+  refine MeasurableSet.iUnion fun n => ?_
+  refine (measurable_walk n (measurableSet_singleton a)).inter ?_
+  refine MeasurableSet.biInter (Finset.range (n + 1)).countable_toSet fun m _ => ?_
+  exact (measurable_walk m (measurableSet_singleton k)).compl
+
+/-- The walk can only step onto `k` from a neighbour of `k`, so on a covering path at least one
+of the two neighbours is reached before `k`. -/
+theorem reachesBefore_or (ω : ℕ → Bool) (hω : Covers ω) (k : Clock) (hk : k ≠ 0) :
+    ReachesBefore ω (k - 1) k ∨ ReachesBefore ω (k + 1) k := by
+  have hS : {n | walk ω n = k}.Nonempty := by
+    obtain ⟨n, -, hn⟩ := (visited_eq_univ_iff ω _).1 (coverTime_mem ω hω) k
+    exact ⟨n, hn⟩
+  obtain ⟨s, hsk, hslt⟩ : ∃ s, walk ω s = k ∧ ∀ m < s, walk ω m ≠ k :=
+    ⟨sInf {n | walk ω n = k}, Nat.sInf_mem hS, fun m hm => Nat.notMem_of_lt_sInf hm⟩
+  have hs0 : s ≠ 0 := by
+    intro h
+    rw [h] at hsk
+    exact hk (by simpa [walk] using hsk.symm)
+  obtain ⟨t, rfl⟩ : ∃ t, s = t + 1 := ⟨s - 1, by omega⟩
+  have hlt : ∀ m ≤ t, walk ω m ≠ k := fun m hm => hslt m (by omega)
+  rcases walk_succ_eq ω t with h | h
+  · refine Or.inl ⟨t, ?_, hlt⟩
+    rw [h] at hsk
+    linear_combination hsk
+  · refine Or.inr ⟨t, ?_, hlt⟩
+    rw [h] at hsk
+    linear_combination hsk
+
+/-- **Gambler's ruin on the cut clock.**  Write `d = (-k).val ∈ {1, …, 11}` for the position of
+the start relative to `k`.  Cutting the cycle open at `k` turns the walk into a simple random
+walk on `{0, …, 12}` started at `d`, with both endpoints standing for `k`; reaching `k - 1`
+before `k` means reaching `11` before `0`, which has probability `d / 11`, and reaching `k + 1`
+before `k` means reaching `1` before `12`, which has probability `(12 - d) / 11`.  The two add
+up to `12 / 11 = 1 + 1 / 11`, independently of `d`. -/
+theorem prob_reachesBefore_add (hμ : IsFairCoinFlips μ) (k : Clock) (hk : k ≠ 0) :
+    μ {ω | ReachesBefore ω (k - 1) k} + μ {ω | ReachesBefore ω (k + 1) k} = 1 + 1 / 11 := by
+  sorry
+
 /-! ## Main results -/
 
 /-- **The last field visited is uniform on the eleven non-starting fields.** -/
 theorem prob_lastField_eq (hμ : IsFairCoinFlips μ) (k : Clock) (hk : k ≠ 0) :
     μ {ω | lastField ω = k} = 1 / 11 := by
-  sorry
+  -- the event `lastField = k` agrees off a null set with the intersection of the two events
+  have hAB : μ {ω | lastField ω = k}
+      = μ ({ω | ReachesBefore ω (k - 1) k} ∩ {ω | ReachesBefore ω (k + 1) k}) := by
+    refine measure_congr ?_
+    filter_upwards [ae_covers hμ] with ω hω
+    exact propext (lastField_eq_iff ω hω k hk)
+  -- the walk almost surely covers the clock, hence almost surely lies in the union
+  have hcovers : μ {ω | Covers ω} = 1 := by
+    have he : {ω | Covers ω} =ᵐ[μ] (Set.univ : Set (ℕ → Bool)) := by
+      filter_upwards [ae_covers hμ] with ω hω
+      exact propext (iff_of_true hω trivial)
+    rw [measure_congr he, measure_univ]
+  have hunion :
+      μ ({ω | ReachesBefore ω (k - 1) k} ∪ {ω | ReachesBefore ω (k + 1) k}) = 1 := by
+    refine le_antisymm prob_le_one ?_
+    rw [← hcovers]
+    exact measure_mono fun ω hω => reachesBefore_or ω hω k hk
+  -- inclusion–exclusion against the two ruin probabilities
+  have hie := measure_union_add_inter (μ := μ) {ω | ReachesBefore ω (k - 1) k}
+    (measurableSet_reachesBefore (k + 1) k)
+  rw [hunion, prob_reachesBefore_add hμ k hk] at hie
+  rw [hAB]
+  exact (ENNReal.add_right_inj ENNReal.one_ne_top).1 hie
 
 /-- **The ladybug stops on the 3 o'clock field with probability `1 / 11`.** -/
 theorem prob_stops_at_three (hμ : IsFairCoinFlips μ) :
