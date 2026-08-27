@@ -260,7 +260,7 @@ private theorem card_bad_block :
       simp at hb
     · intro hne
       by_contra hcon
-      push_neg at hcon
+      push Not at hcon
       exact hne (funext fun b => by simpa using hcon b)
   rw [hkey, Finset.card_erase_of_mem (Finset.mem_univ _), Finset.card_univ,
     Fintype.card_pi_const]
@@ -295,7 +295,7 @@ theorem ae_covers (hμ : IsFairCoinFlips μ) : ∀ᵐ ω ∂μ, Covers ω := by
   have hsub : {ω | ¬ Covers ω} ⊆ {ω | NoGoodBlock ω} := by
     intro ω hω N
     by_contra hcon
-    push_neg at hcon
+    push Not at hcon
     exact hω (covers_of_block (N := 11 * N) fun i hi => by simpa using hcon i hi)
   -- a union bound over the bad patterns of the first `M` blocks
   have hbound : ∀ M : ℕ, μ {ω | NoGoodBlock ω} ≤ ((2047 : ℝ≥0∞) * (1 / 2) ^ 11) ^ M := by
@@ -480,7 +480,7 @@ theorem measurableSet_reachesBefore (a k : Clock) :
   have hset : {ω | ReachesBefore ω a k}
       = ⋃ n, ({ω | walk ω n = a} ∩ ⋂ m ∈ Finset.range (n + 1), {ω | walk ω m = k}ᶜ) := by
     ext ω
-    simp only [ReachesBefore, Set.mem_setOf_eq, Set.mem_iUnion, Set.mem_inter_iff,
+    simp only [ReachesBefore, Set.mem_ofPred_eq, Set.mem_iUnion, Set.mem_inter_iff,
       Set.mem_iInter, Set.mem_compl_iff, Finset.mem_range, Nat.lt_succ_iff]
   rw [hset]
   refine MeasurableSet.iUnion fun n => ?_
@@ -1077,5 +1077,40 @@ theorem prob_stops_at_noon (hμ : IsFairCoinFlips μ) :
     μ {ω | lastField ω = 0} = 0 := by
   have hnull : μ {ω | ¬ Covers ω} = 0 := ae_iff.mp (ae_covers hμ)
   exact measure_mono_null (fun ω hω hc => lastField_ne_zero ω hc hω) hnull
+
+/-! ## The driving measure exists
+
+The results above are stated for an arbitrary `μ` satisfying `IsFairCoinFlips`.  Mathlib's
+infinite product of fair Bernoulli measures is such a `μ`, so the hypothesis is satisfiable and
+the results are not vacuous. -/
+
+/-- The fair coin: mass `1 / 2` on each of `true` and `false`. -/
+noncomputable def fairCoin : Measure Bool :=
+  (1 / 2 : ℝ≥0∞) • Measure.dirac true + (1 / 2 : ℝ≥0∞) • Measure.dirac false
+
+instance : IsProbabilityMeasure fairCoin :=
+  ⟨by simp [fairCoin, ENNReal.inv_two_add_inv_two]⟩
+
+theorem fairCoin_singleton (b : Bool) : fairCoin {b} = 1 / 2 := by
+  cases b <;> simp [fairCoin]
+
+/-- The infinite product of fair coins: an explicit measure driving the ladybug's walk. -/
+noncomputable def coinFlips : Measure (ℕ → Bool) := Measure.infinitePi fun _ : ℕ => fairCoin
+
+instance : IsProbabilityMeasure coinFlips := by
+  unfold coinFlips; infer_instance
+
+theorem isFairCoinFlips_coinFlips : IsFairCoinFlips coinFlips := by
+  intro s f
+  have hset : {ω : ℕ → Bool | ∀ i ∈ s, ω i = f i} = Set.pi (s : Set ℕ) fun i => {f i} := by
+    ext ω; simp [Set.mem_pi]
+  rw [hset, coinFlips,
+    Measure.infinitePi_pi (fun _ : ℕ => fairCoin) fun i _ => measurableSet_singleton (f i)]
+  simp [fairCoin_singleton]
+
+/-- **The ladybug stops on the 3 o'clock field with probability `1 / 11`**, for the explicit
+infinite product of fair coin flips. -/
+theorem coinFlips_stops_at_three : coinFlips {ω | lastField ω = 3} = 1 / 11 :=
+  prob_stops_at_three isFairCoinFlips_coinFlips
 
 end LadybugClock
